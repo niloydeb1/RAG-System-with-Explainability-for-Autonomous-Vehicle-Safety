@@ -1,0 +1,13 @@
+{
+  "rows_pre_input": 1899,
+  "rows_post_input": 710,
+  "rows_harmonized": 2609,
+  "rows_harmonized_latest": 2609,
+  "duplicate_report_id_rows_before_combining": 0,
+  "duplicate_report_id_rows_after_combining": 0,
+  "unique_same_incident_id_harmonized": 2217,
+  "schema_counts_harmonized": {
+    "pre_mid_2025": 1899,
+    "post_mid_2025": 710
+  }
+}

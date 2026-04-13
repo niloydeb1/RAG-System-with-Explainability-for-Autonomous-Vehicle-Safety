@@ -1,0 +1,74 @@
+[
+  {
+    "source_file": "raw_pre_mid_2025.csv",
+    "schema_version": "pre_mid_2025",
+    "rows_before": 2295,
+    "rows_after_non_incident_filter": 2292,
+    "rows_after_latest_version": 1899,
+    "removed_non_incident_rows": 3,
+    "removed_older_versions": 393,
+    "n_columns_final": 139,
+    "n_unique_report_id": 1899,
+    "n_unique_same_incident_id": 1508,
+    "report_type_counts_final": {
+      "Monthly": 1185,
+      "5-Day": 308,
+      "10-Day Update": 242,
+      "Update": 119,
+      "1-Day": 45
+    },
+    "top_reporting_entities_final": {
+      "Waymo LLC": 1116,
+      "Cruise LLC": 155,
+      "General Motors, LLC": 149,
+      "Transdev Alternative Services": 140,
+      "Zoox, Inc.": 94,
+      "May Mobility": 28,
+      "PACCAR Incorporated": 21,
+      "Argo AI": 20,
+      "Ford Motor Company": 17,
+      "Aurora Operations, Inc.": 17,
+      "Motional": 14,
+      "Hyundai Motor America": 13,
+      "WeRide Corp": 12,
+      "Beep, Inc.": 10,
+      "Nuro": 8
+    },
+    "incident_date_min": "2021-07",
+    "incident_date_max": "2025-06"
+  },
+  {
+    "source_file": "raw_post_mid_2025.csv",
+    "schema_version": "post_mid_2025",
+    "rows_before": 725,
+    "rows_after_non_incident_filter": 725,
+    "rows_after_latest_version": 710,
+    "removed_non_incident_rows": 0,
+    "removed_older_versions": 15,
+    "n_columns_final": 118,
+    "n_unique_report_id": 710,
+    "n_unique_same_incident_id": 709,
+    "report_type_counts_final": {
+      "5-Day": 364,
+      "Monthly": 333,
+      "Update": 13
+    },
+    "top_reporting_entities_final": {
+      "Waymo LLC": 613,
+      "Zoox, Inc.": 26,
+      "Avride Inc.": 24,
+      "Tesla, Inc.": 15,
+      "May Mobility": 11,
+      "Motional": 5,
+      "Nuro": 4,
+      "Beep, Inc.": 4,
+      "Aurora Operations, Inc.": 4,
+      "Oxbotica": 1,
+      "Stack AV": 1,
+      "Ohmio, Inc.": 1,
+      "Hyundai Motor America": 1
+    },
+    "incident_date_min": "2025-04",
+    "incident_date_max": "2026-02"
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "input_rows_report_level": 2609,
+  "output_rows_incident_level": 2229,
+  "unique_same_incident_id_input": 2217,
+  "multi_report_incident_cases": 364,
+  "max_reports_in_one_incident_case": 3,
+  "fallback_cases_without_same_incident_id": 12
+}

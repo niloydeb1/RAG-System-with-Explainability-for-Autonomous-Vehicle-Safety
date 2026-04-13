@@ -1,0 +1,9 @@
+{
+  "input_incident_cases": 2229,
+  "output_rag_documents": 2229,
+  "output_pinecone_records": 2229,
+  "multi_report_cases_in_input": 364,
+  "records_with_video_evidence": 2186,
+  "records_with_telematics_evidence": 2106,
+  "records_with_police_report_evidence": 68
+}
