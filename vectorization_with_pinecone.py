@@ -8,7 +8,7 @@ from pinecone import Pinecone
 # =========================
 # USER SETTINGS
 # =========================
-API_KEY = "PASTE_YOUR_OWN_API_KEY"
+PINECONE_API_KEY = "YOUR API KEY"
 INDEX_NAME = "av-safety-rag-index"
 NAMESPACE = "nhtsa-av-cases"
 JSONL_PATH = Path(r"Data/clean_reports_outputs/merged_outputs/incident_cases_outputs/rag_documents_outputs/pinecone_integrated_records.jsonl")
@@ -332,10 +332,10 @@ def run_test_queries(pc: Pinecone):
 
 
 def main():
-    if not API_KEY:
+    if not PINECONE_API_KEY:
         raise EnvironmentError("API_KEY is empty.")
 
-    pc = Pinecone(api_key=API_KEY)
+    pc = Pinecone(api_key=PINECONE_API_KEY)
 
     recreate_index(pc)
 
