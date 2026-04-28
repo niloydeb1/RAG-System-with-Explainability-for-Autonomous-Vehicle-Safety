@@ -1,374 +1,289 @@
 import os
+import random
+from collections import Counter
+
 from dotenv import load_dotenv
 from pinecone import Pinecone
 from openai import OpenAI
+from pyvis.network import Network
 
+# =========================
+# SETUP
+# =========================
 load_dotenv()
 
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-namespace = "nhtsa-av-cases"
+
+NAMESPACE = "nhtsa-av-cases"
 INDEX_NAME = "av-safety-rag-index"
-data_fields = [
+
+DATA_FIELDS = [
     "document_title",
     "chunk_text",
     "state",
     "city",
     "crash_with",
     "injury_severity",
-    "within_odd",
-    "automation_type_engaged",
-    "primary_reporting_entity",
-    "incident_ym",
 ]
 
-system_instructions = """
-You are an expert at analyzing behavior patterns in autonomous vehicle safety incidents using NHTSA Standing General Order reports.
-Your goal is to identify observable patterns and contributing factors across the provided incident records, such as common crash types, conditions, locations, or automation states, and use those patterns to answer a question proposed by the user.
-
-Guidelines:
-- Ground every claim in the retrieved incident records. Cite the incident case ID in parentheses for each specific claim.
-- For pattern or statistical questions: identify what the records have in common (e.g., shared crash type, ODD status, injury outcome) and summarize the pattern clearly.
-- For case-based questions: describe the relevant incidents and highlight shared or notable factors.
-- For hypothetical or decision-support questions: reason from what similar past incidents show, and be explicit that your answer is based on observed patterns, not AV internal logic.
-- If the retrieved records are insufficient to fully answer the question, say so clearly and describe what type of additional data would be needed.
+SYSTEM_INSTRUCTIONS = """
+You analyze patterns in autonomous vehicle safety incidents.
+Explain patterns clearly using retrieved cases.
 """
 
+# =========================
+# RETRIEVAL
+# =========================
+def retrieve(pc, query, top_k=10):
+    index = pc.Index(INDEX_NAME)
 
-def retrieve(pc: Pinecone, query: str, top_k: int = 10):
-    #index = pc.Index(index_name)
-    index = pc.Index("av-safety-rag-index")
     result = index.search(
-        namespace=namespace,
+        namespace=NAMESPACE,
         query={"inputs": {"text": query}, "top_k": top_k},
-        fields=data_fields,
+        fields=DATA_FIELDS,
     )
 
     if isinstance(result, dict):
         return result.get("result", {}).get("hits", [])
 
     result_obj = getattr(result, "result", None)
-    return getattr(result_obj, "hits", []) if result_obj is not None else []
+    return getattr(result_obj, "hits", []) if result_obj else []
 
 
 def parse_hit(hit):
     if isinstance(hit, dict):
         return hit.get("_id"), hit.get("_score"), hit.get("fields", {})
-    hit_id = getattr(hit, "_id", None)
-    score = getattr(hit, "_score", None)
-    fields = getattr(hit, "fields", {}) or {}
-    return hit_id, score, fields
+
+    return (
+        getattr(hit, "_id", None),
+        getattr(hit, "_score", None),
+        getattr(hit, "fields", {}) or {},
+    )
 
 
-def construct_context(hits) -> str:
+def construct_context(hits):
     parts = []
     for i, hit in enumerate(hits, start=1):
-        hit_id, score, fields = parse_hit(hit)
+        _, score, fields = parse_hit(hit)
         parts.append(
-            f"INCIDENT {i} (ID: {hit_id}, relevance score: {score:.4f})\n"
+            f"INCIDENT {i} (score: {score:.4f})\n"
             f"{fields.get('chunk_text', '')}"
         )
     return "\n\n".join(parts)
 
 
-def ask(query: str, hits=None, verbose: bool = True):
-    pc = Pinecone(api_key=PINECONE_API_KEY)
-    client = OpenAI(api_key=OPENAI_API_KEY)
+# =========================
+# REASONING
+# =========================
+def normalize_outcome(injury):
+    if not injury:
+        return None
+    if "Minor" in injury:
+        return "Minor"
+    if "Moderate" in injury:
+        return "Moderate"
+    if "Serious" in injury:
+        return "Serious"
+    return "No Injury"
 
-    if hits is None:
-        hits = retrieve(pc, query)
-    context = construct_context(hits)
-
-    if verbose:
-        print(f"\nRetrieved {len(hits)} incidents for: {query!r}")
-        for i, hit in enumerate(hits, start=1):
-            hit_id, score, fields = parse_hit(hit)
-            print(f"  {i}. {fields.get('document_title', hit_id)}  (score={score:.4f})")
-
-    messages = [
-        {"role": "system", "content": system_instructions},
-        {
-            "role": "user",
-            "content": (
-                f"Relevant incident records:\n\n{context}\n\n"
-                f"Question: {query}"
-            ),
-        },
-    ]
-
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=messages,
-        temperature=0,
-    )
-
-    #answer = response.choices[0].message.content
-    #return answer, hits
-    #answer = response.choices[0].message.content
-
-    # build graph
-    #graph = build_graph_from_hits(hits)
-    #graph_text = graph_to_text(graph)
-
-    #return answer, hits, graph_text
-    answer = response.choices[0].message.content
-
-    paths = extract_reasoning_paths(hits)
-    paths_text = "\n".join(paths)
-
-    graph_file = build_visual_graph(hits)
-    top_path = get_top_reasoning_path(hits)
-
-    #return answer, hits, paths_text, graph_file
-    return answer, hits, paths_text + f"\n\nTOP PATH:\n{top_path}", graph_file
-
-def extract_entities_from_hit(fields):
-    return [
-        fields.get("crash_with"),
-        fields.get("injury_severity"),
-        fields.get("within_odd"),
-        fields.get("automation_type_engaged"),
-        fields.get("state"),
-        fields.get("city"),
-    ]
-
-from collections import defaultdict
-
-def build_graph_from_hits(hits):
-    graph = defaultdict(set)
-
-    for hit in hits:
-        _, _, fields = parse_hit(hit)
-        entities = extract_entities_from_hit(fields)
-
-        # remove None values
-        entities = [e for e in entities if e]
-
-        # connect all entities in the same incident
-        for i in range(len(entities)):
-            for j in range(i + 1, len(entities)):
-                graph[entities[i]].add(entities[j])
-                graph[entities[j]].add(entities[i])
-
-    return graph
-def graph_to_text(graph):
-    lines = []
-    for node, neighbors in graph.items():
-        if neighbors:
-            lines.append(f"{node} → {', '.join(list(neighbors)[:3])}")
-    return "\n".join(lines[:10])
-
-def extract_reasoning_paths(hits, max_paths=5):
-    paths = []
-
-    for hit in hits:
-        _, _, fields = parse_hit(hit)
-        chain = extract_event_chain(fields)
-
-        if len(chain) >= 3:
-            paths.append(" → ".join(chain))
-
-    return paths[:max_paths]
-def get_color(node):
-    if "Pedestrian" in node:
-        return "red"
-    elif "Injury" in node or "Minor" in node or "Serious" in node:
-        return "orange"
-    elif node in ["Intersection", "Crossing", "Stopped Vehicle"]:
-        return "purple"
-    elif node == "Collision":
-        return "black"
-    else:
-        return "blue"
-
-
-def get_size(node):
-    if node == "Collision":
-        return 35
-    elif "Pedestrian" in node:
-        return 30
-    elif "Injury" in node or "Minor" in node or "Serious" in node:
-        return 25
-    else:
-        return 15
-
-from pyvis.network import Network
-import re
 
 def extract_event_chain(fields):
     text = (fields.get("chunk_text") or "").lower()
 
     chain = []
 
-    # Stage 1: actor
     if fields.get("crash_with") == "Non-Motorist: Pedestrian":
         chain.append("Pedestrian")
 
-    # Stage 2: context (ONLY ONE)
     if "crossing" in text:
         chain.append("Crossing")
     elif "intersection" in text:
         chain.append("Intersection")
 
-    # Stage 3: vehicle state
     if "stopped" in text:
         chain.append("Stopped Vehicle")
 
-    # Stage 4: event (force one direction)
     chain.append("Collision")
 
-    # Stage 5: outcome
-    injury = fields.get("injury_severity")
-    if injury:
-        chain.append(injury)
+    outcome = normalize_outcome(fields.get("injury_severity"))
+    if outcome:
+        chain.append(outcome)
 
     return chain
 
 
-from pyvis.network import Network
-from collections import Counter
+def get_top_k_paths(hits, k=3):
+    counter = Counter()
 
-from pyvis.network import Network
-from collections import Counter
+    for hit in hits:
+        _, _, fields = parse_hit(hit)
+        chain = extract_event_chain(fields)
+
+        if len(chain) >= 3:
+            counter[tuple(chain)] += 1
+
+    if not counter:
+        return ["No strong patterns found."]
+
+    total = sum(counter.values())
+    top = counter.most_common(k)
+
+    results = []
+    for path, count in top:
+        conf = round((count / total) * 100, 1)
+        results.append(f"{' → '.join(path)} ({conf}%)")
+
+    return results
 
 
+# =========================
+# GRAPH (CLEAN VERSION)
+# =========================
 def build_visual_graph(hits):
     net = Network(height="500px", width="100%", directed=True)
 
     edge_weights = Counter()
     path_counts = Counter()
 
-    # -------- Step 1: Build event chains --------
-    chains = []
     for hit in hits:
         _, _, fields = parse_hit(hit)
         chain = extract_event_chain(fields)
 
         if len(chain) >= 3:
-            chains.append(chain)
             path_counts[tuple(chain)] += 1
-
             for i in range(len(chain) - 1):
                 edge_weights[(chain[i], chain[i+1])] += 1
 
-    # -------- Step 2: Handle empty case --------
-    if not chains:
-        net.add_node("No Pattern Found", color="gray", size=20)
-        file_path = "graph.html"
-        net.write_html(file_path, notebook=False, open_browser=False)
-        return file_path
+    if not edge_weights:
+        net.add_node("No Data")
+        net.write_html("graph.html")
+        return "graph.html"
 
-    # -------- Step 3: Find top reasoning path --------
-    top_path = path_counts.most_common(1)[0][0]
+    top_paths = [p for p, _ in path_counts.most_common(3)]
 
-    # -------- Step 4: Styling helpers --------
-    def get_color(node):
-        if "Pedestrian" in node:
-            return "red"
-        elif node == "Collision":
-            return "black"
-        elif "Injury" in node or "Minor" in node or "Serious" in node:
-            return "orange"
-        elif node in ["Crossing", "Intersection", "Stopped Vehicle"]:
-            return "purple"
-        else:
-            return "blue"
+    allowed_edges = set()
+    for path in top_paths:
+        for i in range(len(path) - 1):
+            allowed_edges.add((path[i], path[i+1]))
 
-    def get_size(node):
-        if node == "Collision":
-            return 40
-        elif "Pedestrian" in node:
-            return 30
-        elif node in top_path:
-            return 25
-        else:
-            return 15
+    def relation(src, dst):
+        if src == "Pedestrian":
+            return "involved_in"
+        if dst in ["Crossing", "Intersection"]:
+            return "occurs_at"
+        if dst == "Stopped Vehicle":
+            return "vehicle_state"
+        if dst == "Collision":
+            return "results_in"
+        if dst in ["Minor", "Moderate", "Serious", "No Injury"]:
+            return "outcome"
+        return "leads_to"
 
-    bad_nodes = {"Other, see Narrative", "Unknown", None}
+    # Left-to-right layout
+    STAGE_X = {
+        "Pedestrian": 0,
+        "Crossing": 1,
+        "Intersection": 1,
+        "Stopped Vehicle": 2,
+        "Collision": 3,
+        "Minor": 4,
+        "Moderate": 4,
+        "Serious": 4,
+        "No Injury": 4,
+    }
 
-    # -------- Step 5: Add normal edges --------
-    for (src, dst), weight in edge_weights.items():
+    outcome_y = {
+        "Minor": -100,
+        "Moderate": 0,
+        "Serious": 100,
+        "No Injury": 200,
+    }
 
-        if src in bad_nodes or dst in bad_nodes:
+    def node_x(n): return STAGE_X.get(n, 2) * 250
+    def node_y(n):
+        if n in outcome_y:
+            return outcome_y[n]
+        return random.randint(-150, 150)
+
+    max_w = max(edge_weights.values())
+
+    added = set()
+
+    # Draw edges
+    for (src, dst), w in edge_weights.items():
+        if (src, dst) not in allowed_edges:
             continue
 
-        # prevent reverse loops
-        if (dst, src) in edge_weights:
-            continue
+        conf = w / max_w
 
-        net.add_node(src, label=src, color=get_color(src), size=get_size(src))
-        net.add_node(dst, label=dst, color=get_color(dst), size=get_size(dst))
+        if src not in added:
+            net.add_node(src, label=src, x=node_x(src), y=node_y(src), physics=False)
+            added.add(src)
 
-        net.add_edge(src, dst, width=1 + weight)
+        if dst not in added:
+            net.add_node(dst, label=dst, x=node_x(dst), y=node_y(dst), physics=False)
+            added.add(dst)
 
-    # -------- Step 6: Highlight top reasoning path --------
-    seen_edges = set()
-    top_nodes = list(top_path)
+        net.add_edge(
+            src,
+            dst,
+            label=f"{conf:.2f}",
+            title=relation(src, dst),
+            width=2 + 5 * conf,
+            smooth={"type": "curvedCW", "roundness": 0.2}
+        )
 
-    for i in range(len(top_nodes) - 1):
-        edge = (top_nodes[i], top_nodes[i+1])
+    # Highlight top paths
+    colors = ["red", "orange", "green"]
 
-        if edge not in seen_edges:
+    for idx, path in enumerate(top_paths):
+        nodes = list(path)
+        for i in range(len(nodes) - 1):
             net.add_edge(
-                edge[0],
-                edge[1],
+                nodes[i],
+                nodes[i+1],
+                color=colors[idx],
                 width=8,
-                color="red"
+                arrows="to"
             )
-            seen_edges.add(edge)
 
-    # -------- Step 7: Layout --------
-    net.force_atlas_2based()
+    net.set_options("""
+    {
+      "edges": { "font": { "size": 10 } },
+      "nodes": { "font": { "size": 16 } }
+    }
+    """)
 
-    # -------- Step 8: Save graph --------
-    file_path = "graph.html"
-    net.write_html(file_path, notebook=False, open_browser=False)
-
-    return file_path
-
-def get_top_reasoning_path(hits):
-    from collections import Counter
-
-    path_counts = Counter()
-
-    for hit in hits:
-        _, _, fields = parse_hit(hit)
-        chain = extract_event_chain(fields)
-
-        if len(chain) >= 3:
-            path = tuple(chain)
-            path_counts[path] += 1
-
-    if not path_counts:
-        return "No strong pattern found."
-
-    top_path = path_counts.most_common(1)[0][0]
-    return " → ".join(top_path)
-#from pyvis.network import Network
+    net.write_html("graph.html")
+    return "graph.html"
 
 
-#def build_visual_graph(hits):
- #   net = Network(height="500px", width="100%", directed=True)
+# =========================
+# MAIN
+# =========================
+def ask(query):
+    pc = Pinecone(api_key=PINECONE_API_KEY)
+    client = OpenAI(api_key=OPENAI_API_KEY)
 
-  #  for hit in hits:
-   #     _, _, fields = parse_hit(hit)
+    hits = retrieve(pc, query)
+    context = construct_context(hits)
 
-    #    crash = fields.get("crash_with")
-     #   city = fields.get("city")
-      #  injury = fields.get("injury_severity")
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {"role": "system", "content": SYSTEM_INSTRUCTIONS},
+            {"role": "user", "content": f"{context}\n\nQuestion: {query}"}
+        ],
+        temperature=0,
+    )
 
-       # nodes = [crash, city, injury]
-        #nodes = [n for n in nodes if n]
+    answer = response.choices[0].message.content
+    top_paths = get_top_k_paths(hits)
+    graph_file = build_visual_graph(hits)
 
-        #for i in range(len(nodes) - 1):
-         #   net.add_node(nodes[i], label=nodes[i])
-          #  net.add_node(nodes[i+1], label=nodes[i+1])
-           # net.add_edge(nodes[i], nodes[i+1])
+    explanation = "Top Explanation Paths:\n" + "\n".join(
+        [f"{i+1}. {p}" for i, p in enumerate(top_paths)]
+    )
 
-    ##file_path = "graph.html"
-    #import os
-
-    #file_path = os.path.abspath("graph.html")
-    ##net.save_graph(file_path)
-    #net.write_html(file_path, notebook=False, open_browser=False)
-    #return file_path
+    return answer, hits, explanation, graph_file
