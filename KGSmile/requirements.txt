@@ -1,5 +1,15 @@
-openai
-pinecone-client
-python-dotenv
-gradio
-pyvis
+# OpenAI & Pinecone Native Clients
+openai>=1.12.0
+pinecone-client>=3.1.0
+
+# LangChain Orchestration
+langchain>=0.1.0
+langchain-openai>=0.0.6
+langchain-pinecone>=0.0.1
+
+# Graph Visualization & UI
+pyvis>=0.3.2
+gradio>=4.19.0
+
+# Environment Management
+python-dotenv>=1.0.1
